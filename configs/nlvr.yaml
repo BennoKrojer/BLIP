@@ -1,4 +1,4 @@
-image_root: '/export/share/datasets/vision/NLVR2/' 
+image_root: '/home/mila/b/benno.krojer/scratch/nlvr2' 
 ann_root: 'annotation'
 
 # set pretrained as a file path or an url
