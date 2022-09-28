@@ -181,7 +181,7 @@ def main(args, config):
         if args.evaluate:             
             break            
          
-        dist.barrier()   
+        # dist.barrier()   
     
     if utils.is_main_process():   
         with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
@@ -202,6 +202,7 @@ if __name__ == '__main__':
     parser.add_argument('--world_size', default=1, type=int, help='number of distributed processes')    
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     parser.add_argument('--distributed', default=False, type=bool)
+    parser.add_argument('--job_id', type=str)
     args = parser.parse_args()
 
     config = yaml.load(open(args.config, 'r'), Loader=yaml.Loader)
