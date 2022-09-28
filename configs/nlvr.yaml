@@ -2,12 +2,12 @@ image_root: '/home/mila/b/benno.krojer/scratch/nlvr2'
 ann_root: 'annotation'
 
 # set pretrained as a file path or an url
-pretrained: 'https://storage.googleapis.com/sfr-vision-language-research/BLIP/models/model_base_nlvr.pth'
+pretrained: 'https://storage.googleapis.com/sfr-vision-language-research/BLIP/models/model_base.pth'
 
 #size of vit model; base or large
 vit: 'base'
-batch_size_train: 16 
-batch_size_test: 64 
+batch_size_train: 16
+batch_size_test: 64
 vit_grad_ckpt: False
 vit_ckpt_layer: 0
 max_epoch: 15

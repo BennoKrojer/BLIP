@@ -166,18 +166,18 @@ def main(args, config):
                             }
 
                 if float(val_stats['acc'])>best:
-                    save_obj = {
-                        'model': model_without_ddp.state_dict(),
-                        'optimizer': optimizer.state_dict(),
-                        'config': config,
-                        'epoch': epoch,
-                    }
-                    torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_best.pth')) 
+                    # save_obj = {
+                    #     'model': model_without_ddp.state_dict(),
+                    #     'optimizer': optimizer.state_dict(),
+                    #     'config': config,
+                    #     'epoch': epoch,
+                    # }
+                    # torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_best.pth')) 
                     best = float(val_stats['acc'])
                     best_epoch = epoch
 
-                with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
-                    f.write(json.dumps(log_stats) + "\n")
+                # with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
+                #     f.write(json.dumps(log_stats) + "\n")
         if args.evaluate:             
             break            
          
@@ -209,6 +209,6 @@ if __name__ == '__main__':
 
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
         
-    yaml.dump(config, open(os.path.join(args.output_dir, 'config.yaml'), 'w'))    
+    # yaml.dump(config, open(os.path.join(args.output_dir, 'config.yaml'), 'w'))    
     
     main(args, config)
