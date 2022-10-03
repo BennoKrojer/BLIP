@@ -49,8 +49,9 @@ def train(model, data_loader, optimizer, epoch, device, config):
 
         loss = model(images, text, targets=targets, train=True)    
         
-        loss.backward()  
-        if i%config['grad_accumulation'] == 0:
+        loss.backward()
+        
+        if i%config.grad_accumulation == 0:
             optimizer.step()
             optimizer.zero_grad()
 
@@ -129,7 +130,7 @@ def main(args, config):
     model = model.to(device)   
     
     model_without_ddp = model
-    if args.distributed: 
+    if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         model_without_ddp = model.module    
             
@@ -168,22 +169,22 @@ def main(args, config):
                             }
 
                 if float(val_stats['acc'])>best:
-                    # save_obj = {
-                    #     'model': model_without_ddp.state_dict(),
-                    #     'optimizer': optimizer.state_dict(),
-                    #     'config': config,
-                    #     'epoch': epoch,
-                    # }
-                    # torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_best.pth')) 
+                    save_obj = {
+                        'model': model_without_ddp.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'config': config,
+                        'epoch': epoch,
+                    }
+                    torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_best.pth')) 
                     best = float(val_stats['acc'])
                     best_epoch = epoch
 
-                # with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
-                #     f.write(json.dumps(log_stats) + "\n")
+                with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
+                    f.write(json.dumps(log_stats) + "\n")
         if args.evaluate:             
             break            
          
-        # dist.barrier()   
+        dist.barrier()   
     
     if utils.is_main_process():   
         with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
@@ -203,8 +204,8 @@ if __name__ == '__main__':
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--world_size', default=1, type=int, help='number of distributed processes')    
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
-    parser.add_argument('--distributed', default=False, type=bool)
-    parser.add_argument('--grad_accumulation', default=1, type=int)
+    parser.add_argument('--grad_accumulation', default=1)
+    parser.add_argument('--distributed', default=True, type=bool)
     parser.add_argument('--job_id', type=str)
     args = parser.parse_args()
 
@@ -213,6 +214,6 @@ if __name__ == '__main__':
 
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
         
-    # yaml.dump(config, open(os.path.join(args.output_dir, 'config.yaml'), 'w'))    
+    yaml.dump(config, open(os.path.join(args.output_dir, 'config.yaml'), 'w'))    
     
     main(args, config)

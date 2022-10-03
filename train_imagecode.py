@@ -24,11 +24,14 @@ from torch.utils.data import DataLoader
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 
-from models.blip_nlvr import blip_nlvr
+from models.blip_imagecode import blip_nlvr
 
+import wandb
 import utils
 from utils import cosine_lr_schedule, warmup_lr_schedule
 from data import create_dataset, create_sampler, create_loader
+
+wandb.init(project='BLIP-imagecode', settings=wandb.Settings(start_method='fork'))
 
 def train(model, data_loader, optimizer, epoch, device, config):
     # train
@@ -53,10 +56,10 @@ def train(model, data_loader, optimizer, epoch, device, config):
         if i%config['grad_accumulation'] == 0:
             optimizer.step()
             optimizer.zero_grad()
-
-               
+       
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
-        metric_logger.update(loss=loss.item())  
+        metric_logger.update(loss=loss.item())
+        wandb.log({'Loss': loss.item()})
         
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -74,7 +77,7 @@ def evaluate(model, data_loader, device, config):
     header = 'Evaluation:'
     print_freq = 50
 
-    for image0, image1, text, targets in metric_logger.log_every(data_loader, print_freq, header):
+    for image0, image1, text, targets, is_video in metric_logger.log_every(data_loader, print_freq, header):
         images = torch.cat([image0, image1], dim=0)
         images, targets = images.to(device), targets.to(device)   
         
@@ -82,15 +85,16 @@ def evaluate(model, data_loader, device, config):
  
         _, pred_class = prediction.max(1)
         accuracy = (targets==pred_class).sum() / targets.size(0)
-        
+        video_accuracy = ((pred_class.cuda() == targets.cuda()) * is_video.cuda()).sum() / is_video.sum()
+
         metric_logger.meters['acc'].update(accuracy.item(), n=image0.size(0))
+        metric_logger.meters['video_acc'].update(accuracy.item(), n=image0.size(0))
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
 
     print("Averaged stats:", metric_logger.global_avg())   
     return {k: "{:.4f}".format(meter.global_avg) for k, meter in metric_logger.meters.items()}
-
 
         
 def main(args, config):
@@ -107,19 +111,19 @@ def main(args, config):
 
     #### Dataset #### 
     print("Creating dataset")
-    datasets = create_dataset('nlvr', config) 
+    datasets = create_dataset('imagecode', config) 
     
     if args.distributed:
         num_tasks = utils.get_world_size()
         global_rank = utils.get_rank()            
-        samplers = create_sampler(datasets, [True,False,False], num_tasks, global_rank)
+        samplers = create_sampler(datasets, [True,False], num_tasks, global_rank)
     else:
         samplers = [None, None, None]
     
     batch_size=[config['batch_size_train'],config['batch_size_test'],config['batch_size_test']]
-    train_loader, val_loader, test_loader = create_loader(datasets,samplers,batch_size=batch_size,
-                                                          num_workers=[4,4,4],is_trains=[True,False,False], 
-                                                          collate_fns=[None,None,None])
+    train_loader, val_loader = create_loader(datasets,samplers,batch_size=batch_size,
+                                                          num_workers=[4,4],is_trains=[True,False], 
+                                                          collate_fns=[None,None])
 
     #### Model #### 
     print("Creating model")
@@ -150,12 +154,12 @@ def main(args, config):
             train_stats = train(model, train_loader, optimizer, epoch,  device, config) 
             
         val_stats = evaluate(model, val_loader, device, config)
-        test_stats = evaluate(model, test_loader, device, config)  
-        
+        # test_stats = evaluate(model, test_loader, device, config)  
+        wandb.log({'Val Accuracy': val_stats['acc']})
         if utils.is_main_process():  
             if args.evaluate:                
-                log_stats = {**{f'val_{k}': v for k, v in val_stats.items()},
-                             **{f'test_{k}': v for k, v in test_stats.items()},
+                log_stats = {**{f'val_{k}': v for k, v in val_stats.items()}
+                            #  **{f'test_{k}': v for k, v in test_stats.items()},
                             }
                 with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
                     f.write(json.dumps(log_stats) + "\n")   
@@ -163,7 +167,7 @@ def main(args, config):
             else:       
                 log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                              **{f'val_{k}': v for k, v in val_stats.items()},
-                             **{f'test_{k}': v for k, v in test_stats.items()},
+                            #  **{f'test_{k}': v for k, v in test_stats.items()},
                              'epoch': epoch,
                             }
 
@@ -176,18 +180,19 @@ def main(args, config):
                     # }
                     # torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_best.pth')) 
                     best = float(val_stats['acc'])
+                    wandb.log({'Best Val Accuracy': best})
                     best_epoch = epoch
 
                 # with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
-                #     f.write(json.dumps(log_stats) + "\n")
+                    # f.write(json.dumps(log_stats) + "\n")
         if args.evaluate:             
             break            
          
         # dist.barrier()   
     
-    if utils.is_main_process():   
-        with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
-            f.write("best epoch: %d"%best_epoch)      
+    # if utils.is_main_process():   
+        # with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
+        #     f.write("best epoch: %d"%best_epoch)      
             
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -196,22 +201,44 @@ def main(args, config):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default='./configs/nlvr.yaml')
-    parser.add_argument('--output_dir', default='output/NLVR')
+    parser.add_argument('--config', default='./configs/imagecode.yaml')
+    parser.add_argument('--output_dir', default='output/imagecode')
     parser.add_argument('--evaluate', action='store_true')      
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--world_size', default=1, type=int, help='number of distributed processes')    
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
     parser.add_argument('--distributed', default=False, type=bool)
+    parser.add_argument('--batchsize', default=16, type=int)
     parser.add_argument('--grad_accumulation', default=1, type=int)
+    parser.add_argument('--lr', type=float)
+    parser.add_argument('--decay', type=float)
+    parser.add_argument('--max_epochs', type=float)
+    parser.add_argument('--video_only', type=str)
+    parser.add_argument('--random_pair_sampling', type=str)
+    parser.add_argument('--max_words', type=int)
+    parser.add_argument('--aug_prob', type=float)
+    parser.add_argument('--concat_layer1to6', type=str)
     parser.add_argument('--job_id', type=str)
     args = parser.parse_args()
 
+    args.video_only = args.video_only == 'True'
+    args.random_pair_sampling = args.random_pair_sampling == 'True'
+    args.concat_layer1to6 = args.concat_layer1to6 == 'True'
+
+    wandb.config.update(args)
     config = yaml.load(open(args.config, 'r'), Loader=yaml.Loader)
     config['grad_accumulation'] = args.grad_accumulation
-
-    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    config['init_lr'] = args.lr
+    config['weight_decay'] = args.decay
+    config['max_epochs'] = args.max_epochs
+    config['video_only'] = args.video_only
+    config['random_pair_sampling'] = args.random_pair_sampling
+    config['max_words'] = args.max_words
+    config['aug_prob'] = args.aug_prob
+    config['concat_layer1to6'] = args.concat_layer1to6
+    
+    # Path(args.output_dir).mkdir(parents=True, exist_ok=True)
         
     # yaml.dump(config, open(os.path.join(args.output_dir, 'config.yaml'), 'w'))    
     

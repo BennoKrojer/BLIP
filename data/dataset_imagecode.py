@@ -46,7 +46,7 @@ class ImageCoDeDataset(Dataset):
                     else:
                         dataset.append((img_dir, pair, label, text))
         
-        return dataset[:1000]
+        return dataset
     
     def __getitem__(self, idx):
         img_dir, pair, label, text = self.data[idx]
