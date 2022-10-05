@@ -8,7 +8,7 @@ from data.nocaps_dataset import nocaps_eval
 from data.flickr30k_dataset import flickr30k_train, flickr30k_retrieval_eval
 from data.vqa_dataset import vqa_dataset
 from data.nlvr_dataset import nlvr_dataset
-from data.dataset_imagecode import ImageCoDeDataset
+from data.dataset_imagecode import ImageCoDeDataset, PairedImageCoDeDataset
 from data.pretrain_dataset import pretrain_dataset
 from transform.randaugment import RandomAugment
 
@@ -20,7 +20,7 @@ def create_dataset(dataset, config, min_scale=0.5):
             transforms.RandomResizedCrop(config['image_size'],scale=(min_scale, 1.0),interpolation=InterpolationMode.BICUBIC),
             transforms.RandomHorizontalFlip(),
             RandomAugment(2,5,isPIL=True,augs=['Identity','AutoContrast','Brightness','Sharpness','Equalize',
-                                              'ShearX', 'ShearY', 'TranslateX', 'TranslateY', 'Rotate']),     
+                                              'ShearX', 'ShearY', 'TranslateX', 'TranslateY', 'Rotate'], prob=config['aug_prob']),     
             transforms.ToTensor(),
             normalize,
         ])        
@@ -70,10 +70,13 @@ def create_dataset(dataset, config, min_scale=0.5):
         return train_dataset, val_dataset, test_dataset   
     
     elif dataset=='imagecode':
-        train_dataset = ImageCoDeDataset(transform_train, '../imagecode/data', 'train')
-        val_dataset = ImageCoDeDataset(transform_test, '../imagecode/data','valid')
+        if config['random_pair_sampling']:
+            train_dataset = PairedImageCoDeDataset(transform_train, '../imagecode/data', 'train', video_only=config['video_only'], max_words=config['max_words'])
+        else:
+            train_dataset = ImageCoDeDataset(transform_train, '../imagecode/data', 'train', video_only=config['video_only'], max_words=config['max_words'])
+        val_dataset = ImageCoDeDataset(transform_test, '../imagecode/data','valid', video_only=config['video_only'], max_words=config['max_words'])
         # test_dataset = ImageCoDeDataset(transform_test, '../imagecode/data', 'test')     
-        return train_dataset, val_dataset   
+        return train_dataset, val_dataset
     
 def create_sampler(datasets, shuffles, num_tasks, global_rank):
     samplers = []

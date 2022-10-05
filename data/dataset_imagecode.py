@@ -10,11 +10,12 @@ from data.utils import pre_caption
 # from transformers import BertTokenizerFast
 from PIL import Image
 
-class ImageCoDeDataset(Dataset):
+class PairedImageCoDeDataset(Dataset):
 
-    def __init__(self, transform, data_dir, split, video_only=False):
+    def __init__(self, transform, data_dir, split, video_only=False, max_words=40):
         super().__init__()
         self.transform = transform
+        self.max_words = max_words
         image_root = '/network/scratch/b/benno.krojer/dataset/games'
         self.data = self.load_data(Path(data_dir), image_root, split, video_only)
 
@@ -53,21 +54,21 @@ class ImageCoDeDataset(Dataset):
         
         images = [self.transform(Image.open(img_file).convert('RGB')) for img_file in pair]
         img1, img2 = images
-        sentence = pre_caption(text, 40)
+        sentence = pre_caption(text, self.max_words)
 
         is_video = torch.tensor(1 if 'open-images' not in img_dir else 0)
         
-        return img1, img2, sentence, label
+        return img1, img2, sentence, label, is_video
     
     def __len__(self):
         return len(self.data)
 
+class ImageCoDeDataset(Dataset):
 
-class InferenceImageCoDeDataset(Dataset):
-
-    def __init__(self, transform, data_dir, split, video_only=False):
+    def __init__(self, transform, data_dir, split, video_only=False, max_words=40):
         super().__init__()
         self.transform = transform
+        self.max_words = max_words
         image_root = '/network/scratch/b/benno.krojer/dataset/games'
         self.data = self.load_data(Path(data_dir), image_root, split, video_only)
 
@@ -81,36 +82,24 @@ class InferenceImageCoDeDataset(Dataset):
             img_files = list((Path(f'{img_path}/{img_dir}')).glob('*.jpg'))
             img_files = sorted(img_files, key=lambda x: int(str(x).split('/')[-1].split('.')[0][3:]))
             for img_idx, text in data.items():
-                img_idx = int(img_idx)
                 static = 'open-images' in img_dir
-                target_file = img_files[img_idx]
-                for i, file in enumerate(img_files):
-                    if i == img_idx:
-                        continue
-                    if i < img_idx:
-                        pair = [target_file, file]
-                        label = 1
-                    else:
-                        pair = [file, target_file]
-                        label = 0
-                    if video_only:
-                        if not static:
-                            dataset.append((img_dir, pair, label, text))
-                    else:
-                        dataset.append((img_dir, pair, label, text))
+                if video_only:
+                    if not static:
+                        dataset.append((img_dir, img_files, int(img_idx), text))
+                else:
+                    dataset.append((img_dir, img_files, int(img_idx), text))
         
         return dataset
     
     def __getitem__(self, idx):
-        img_dir, pair, label, text = self.data[idx]
+        img_dir, img_files, img_idx, text = self.data[idx]
         
-        images = [self.transform(Image.open(img_file).convert('RGB')) for img_file in pair]
-        img1, img2 = images
-        sentence = pre_caption(text, 40)
-
+        images = [self.image_transform(Image.open(img_file).convert('RGB')) for img_file in img_files]
+        img = torch.stack(images, dim=0)
+        sentence = pre_caption(text, self.max_words)
         is_video = torch.tensor(1 if 'open-images' not in img_dir else 0)
         
-        return img1, img2, sentence, label
+        return img, sentence, img_idx, is_video, img_dir
     
     def __len__(self):
         return len(self.data)

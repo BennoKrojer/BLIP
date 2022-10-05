@@ -44,8 +44,8 @@ def train(model, data_loader, optimizer, epoch, device, config):
     header = 'Train Epoch: [{}]'.format(epoch)
     print_freq = 50   
     step_size = 10
- 
-    for i,(image0, image1, text, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+
+    for i,(image0, image1, text, targets, is_video) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
   
         images = torch.cat([image0, image1], dim=0)
         images, targets = images.to(device), targets.to(device)   
