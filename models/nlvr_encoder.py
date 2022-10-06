@@ -1,3 +1,4 @@
+from heapq import merge
 import math
 import os
 import warnings
@@ -256,7 +257,8 @@ class BertAttention(nn.Module):
             self.self1 = BertSelfAttention(config, is_cross_attention)
         else:    
             self.self = BertSelfAttention(config, is_cross_attention)
-        self.output = BertSelfOutput(config, twin=is_cross_attention, merge=(is_cross_attention and layer_num>=6))
+        merge_start = 0 if config.concat_layer1to6 else 6
+        self.output = BertSelfOutput(config, twin=is_cross_attention, merge=(is_cross_attention and layer_num>=merge_start))
         self.pruned_heads = set()
 
     def prune_heads(self, heads):

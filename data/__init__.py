@@ -74,7 +74,7 @@ def create_dataset(dataset, config, min_scale=0.5):
             train_dataset = PairedImageCoDeDataset(transform_train, '../imagecode/data', 'train', video_only=config['video_only'], max_words=config['max_words'])
         else:
             train_dataset = ImageCoDeDataset(transform_train, '../imagecode/data', 'train', video_only=config['video_only'], max_words=config['max_words'])
-        val_dataset = ImageCoDeDataset(transform_test, '../imagecode/data','valid', video_only=config['video_only'], max_words=config['max_words'])
+        val_dataset = PairedImageCoDeDataset(transform_test, '../imagecode/data','valid', video_only=config['video_only'], max_words=config['max_words'])
         # test_dataset = ImageCoDeDataset(transform_test, '../imagecode/data', 'test')     
         return train_dataset, val_dataset
     

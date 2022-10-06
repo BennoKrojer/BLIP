@@ -7,6 +7,7 @@
 '''
 import argparse
 import os
+from this import d
 import ruamel.yaml as yaml
 import numpy as np
 import random
@@ -67,6 +68,45 @@ def train(model, data_loader, optimizer, epoch, device, config):
     return {k: "{:.4f}".format(meter.global_avg) for k, meter in metric_logger.meters.items()}    
 
 
+def train_hard_neg(model, data_loader, optimizer, epoch, device, config):
+    # train
+    model.train()  
+    
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    metric_logger.add_meter('lr', utils.SmoothedValue(window_size=50, fmt='{value:.6f}'))
+    metric_logger.add_meter('loss', utils.SmoothedValue(window_size=50, fmt='{value:.4f}'))
+
+    header = 'Train Epoch: [{}]'.format(epoch)
+    print_freq = 50   
+    step_size = 10
+
+    for i,(img0, img1, text, targets, is_video, img_dir) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+        img0 = img0.flatten(0,1)
+        img1 = img1.flatten(0,1)
+        texts = []
+        for t in text:
+            texts += [t]*9
+        targets = targets.flatten()
+        images = torch.cat([img0, img1], dim=0)
+        images, targets = images.to(device), targets.to(device)   
+
+        loss = model(images, texts, targets=targets, train=True)    
+        
+        loss.backward()  
+        if i%config['grad_accumulation'] == 0:
+            optimizer.step()
+            optimizer.zero_grad()
+       
+        metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+        metric_logger.update(loss=loss.item())
+        wandb.log({'Loss': loss.item()})
+        
+    # gather the stats from all processes
+    metric_logger.synchronize_between_processes()
+    print("Averaged stats:", metric_logger.global_avg())     
+    return {k: "{:.4f}".format(meter.global_avg) for k, meter in metric_logger.meters.items()}    
+
+
 @torch.no_grad()
 def evaluate(model, data_loader, device, config):
     # test
@@ -88,13 +128,51 @@ def evaluate(model, data_loader, device, config):
         video_accuracy = ((pred_class.cuda() == targets.cuda()) * is_video.cuda()).sum() / is_video.sum()
 
         metric_logger.meters['acc'].update(accuracy.item(), n=image0.size(0))
-        metric_logger.meters['video_acc'].update(accuracy.item(), n=image0.size(0))
+        metric_logger.meters['video_acc'].update(video_accuracy.item(), n=image0.size(0))
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
 
     print("Averaged stats:", metric_logger.global_avg())   
     return {k: "{:.4f}".format(meter.global_avg) for k, meter in metric_logger.meters.items()}
+
+@torch.no_grad()
+def evaluate_fullset(model, data_loader, device, config):
+    # test
+    model.eval()
+            
+    metric_logger = utils.MetricLogger(delimiter="  ")
+
+    header = 'Evaluation:'
+    print_freq = 50
+
+    for i,(img0, img1, text, targets, is_video, img_dir) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+
+        img0 = img0.flatten(0,1)
+        img1 = img1.flatten(0,1)
+        texts = []
+        for t in text:
+            texts += [t]*9
+        targets = targets.flatten()
+        images = torch.cat([img0, img1], dim=0)
+        images, targets = images.to(device), targets.to(device)   
+
+        prediction = model(images, text, targets=targets, train=False)  
+ 
+        _, pred_class = prediction.max(1)
+        accuracy = (targets==pred_class).sum() / targets.size(0)
+        video_accuracy = ((pred_class.cuda() == targets.cuda()) * is_video.cuda()).sum() / is_video.sum()
+
+        metric_logger.meters['acc'].update(accuracy.item(), n=img0.size(0))
+        metric_logger.meters['video_acc'].update(video_accuracy.item(), n=img0.size(0))
+
+
+    # gather the stats from all processes
+    metric_logger.synchronize_between_processes()
+
+    print("Averaged stats:", metric_logger.global_avg())   
+    return {k: "{:.4f}".format(meter.global_avg) for k, meter in metric_logger.meters.items()}
+
 
         
 def main(args, config):
@@ -128,7 +206,7 @@ def main(args, config):
     #### Model #### 
     print("Creating model")
     model = blip_nlvr(pretrained=config['pretrained'], image_size=config['image_size'], 
-                         vit=config['vit'], vit_grad_ckpt=config['vit_grad_ckpt'], vit_ckpt_layer=config['vit_ckpt_layer'])
+                         vit=config['vit'], vit_grad_ckpt=config['vit_grad_ckpt'], vit_ckpt_layer=config['vit_ckpt_layer'], concat_layer1to6=config['concat_layer1to6'])
 
     model = model.to(device)   
     
@@ -150,12 +228,15 @@ def main(args, config):
                 train_loader.sampler.set_epoch(epoch)
                 
             cosine_lr_schedule(optimizer, epoch, config['max_epoch'], config['init_lr'], config['min_lr'])
-            
-            train_stats = train(model, train_loader, optimizer, epoch,  device, config) 
+            if config['random_pair_sampling']:
+                train_stats = train(model, train_loader, optimizer, epoch,  device, config) 
+            else:
+                train_stats = train_hard_neg(model, train_loader, optimizer, epoch,  device, config) 
             
         val_stats = evaluate(model, val_loader, device, config)
         # test_stats = evaluate(model, test_loader, device, config)  
         wandb.log({'Val Accuracy': val_stats['acc']})
+        wandb.log({'Video Val Accuracy': val_stats['video_acc']})
         if utils.is_main_process():  
             if args.evaluate:                
                 log_stats = {**{f'val_{k}': v for k, v in val_stats.items()}
@@ -211,14 +292,14 @@ if __name__ == '__main__':
     parser.add_argument('--distributed', default=False, type=bool)
     parser.add_argument('--batchsize', default=16, type=int)
     parser.add_argument('--grad_accumulation', default=1, type=int)
-    parser.add_argument('--lr', type=float)
-    parser.add_argument('--decay', type=float)
-    parser.add_argument('--max_epochs', type=float)
-    parser.add_argument('--video_only', type=str)
-    parser.add_argument('--random_pair_sampling', type=str)
-    parser.add_argument('--max_words', type=int)
-    parser.add_argument('--aug_prob', type=float)
-    parser.add_argument('--concat_layer1to6', type=str)
+    parser.add_argument('--lr', type=float, default=3e-5)
+    parser.add_argument('--decay', type=float, default=0.05)
+    parser.add_argument('--max_epoch', type=int, default=15)
+    parser.add_argument('--video_only', type=str, default='False')
+    parser.add_argument('--random_pair_sampling', type=str, default='True')
+    parser.add_argument('--max_words', type=int, default=40)
+    parser.add_argument('--aug_prob', type=float, default=0.5)
+    parser.add_argument('--concat_layer1to6', type=str, default='False')
     parser.add_argument('--job_id', type=str)
     args = parser.parse_args()
 
@@ -231,13 +312,16 @@ if __name__ == '__main__':
     config['grad_accumulation'] = args.grad_accumulation
     config['init_lr'] = args.lr
     config['weight_decay'] = args.decay
-    config['max_epochs'] = args.max_epochs
+    config['max_epoch'] = args.max_epoch
     config['video_only'] = args.video_only
     config['random_pair_sampling'] = args.random_pair_sampling
     config['max_words'] = args.max_words
     config['aug_prob'] = args.aug_prob
     config['concat_layer1to6'] = args.concat_layer1to6
-    
+
+    if not config['random_pair_sampling']:
+        config['batch_size_train'] = config['batch_size_train'] // 8
+     
     # Path(args.output_dir).mkdir(parents=True, exist_ok=True)
         
     # yaml.dump(config, open(os.path.join(args.output_dir, 'config.yaml'), 'w'))    

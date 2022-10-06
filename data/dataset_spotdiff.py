@@ -116,16 +116,14 @@ class SpotdiffClassificationDataset(Dataset):
                 target = 0
                 images = [image1_file,image0_file]
             
-            img = torch.stack(images, dim=0)
-            dataset.append((img, text, target, 1))
+            # img = torch.stack(images, dim=0)
+            dataset.append((images, text, target, 1))
             # if i > 50:
             #     break
 
         return dataset
     
     def __getitem__(self, idx):
-        # idx = idx // 5
-        # return self.data[idx]
         img, text, target, is_video = self.data[idx]
         file0, file1 = img
         image0 = self.image_transform(Image.open(file0).convert('RGB'))

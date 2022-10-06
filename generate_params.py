@@ -27,7 +27,7 @@ def main(args):
             p_str = ' '.join([args.format.format(name=k, value=v) for k, v in p.items()])
             if args.extra:
                 p_str = args.extra + ' ' + p_str
-            fp.write('sbatch --gres=gpu:rtx8000:1 --mem=48G run.sh main_task_retrieval.py ' + p_str + '\n')
+            fp.write('sbatch --gres=gpu:rtx8000:1 --mem=48G run.sh train_imagecode.py ' + p_str + '\n')
 
 
 if __name__ == '__main__':

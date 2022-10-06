@@ -11,9 +11,9 @@ echo	"Nodelist:	$SLURM_JOB_NODELIST"
 
 # activate conda env
 module purge >/dev/null 2>&1
-source ../ALBEF-old/env/bin/activate
+source env/bin/activate
 # Export env variables
 export PYTHONBUFFERED=1
 
-python3.9 -u $@ --job_id "$SLURM_JOBID"
+python3 -u $@ --job_id "$SLURM_JOBID"
 

@@ -17,7 +17,8 @@ class BLIP_NLVR(nn.Module):
                  image_size = 480,
                  vit = 'base',
                  vit_grad_ckpt = False,
-                 vit_ckpt_layer = 0,                   
+                 vit_ckpt_layer = 0,    
+                 concat_layer1to6 = False               
                  ):
         """
         Args:
@@ -30,6 +31,7 @@ class BLIP_NLVR(nn.Module):
         self.visual_encoder, vision_width = create_vit(vit,image_size, vit_grad_ckpt, vit_ckpt_layer, drop_path_rate=0.1)
         self.tokenizer = init_tokenizer()   
         med_config = BertConfig.from_json_file(med_config)
+        med_config.concat_layer1to6 = concat_layer1to6
         med_config.encoder_width = vision_width
         self.text_encoder = BertModel(config=med_config, add_pooling_layer=False) 
                     
