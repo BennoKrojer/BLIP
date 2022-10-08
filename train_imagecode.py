@@ -6,6 +6,7 @@
  * By Junnan Li
 '''
 import argparse
+from collections import defaultdict
 import os
 from this import d
 import ruamel.yaml as yaml
@@ -60,7 +61,7 @@ def train(model, data_loader, optimizer, epoch, device, config):
        
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         metric_logger.update(loss=loss.item())
-        wandb.log({'Loss': loss.item()})
+        # wandb.log({'Loss': loss.item()})
         
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -99,7 +100,7 @@ def train_hard_neg(model, data_loader, optimizer, epoch, device, config):
        
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         metric_logger.update(loss=loss.item())
-        wandb.log({'Loss': loss.item()})
+        # wandb.log({'Loss': loss.item()})
         
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -146,7 +147,8 @@ def evaluate_fullset(model, data_loader, device, config):
     header = 'Evaluation:'
     print_freq = 50
 
-    for i,(img0, img1, text, targets, is_video, img_dir) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for i,(img0, img1, pairs, text, targets, is_video, img_dir) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+        #TODO: this will assume batchsize=1 for now
 
         img0 = img0.flatten(0,1)
         img1 = img1.flatten(0,1)
@@ -160,6 +162,14 @@ def evaluate_fullset(model, data_loader, device, config):
         prediction = model(images, text, targets=targets, train=False)  
  
         _, pred_class = prediction.max(1)
+        scores = defaultdict(int)
+        for pair, single_pred in (pairs, pred_class):
+            if single_pred == 0:
+                scores[pair[0]] += 1
+            else:
+                scores[pair[1]] += 1
+
+        
         accuracy = (targets==pred_class).sum() / targets.size(0)
         video_accuracy = ((pred_class.cuda() == targets.cuda()) * is_video.cuda()).sum() / is_video.sum()
 
