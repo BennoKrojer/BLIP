@@ -154,7 +154,7 @@ def evaluate_fullset(model, data_loader, device, config):
         img1 = img1.flatten(0,1)
         texts = []
         for t in text:
-            texts += [t]*9
+            texts += [t]*img0.shape[0]
         targets = targets.flatten()
         images = torch.cat([img0, img1], dim=0)
         images, targets = images.to(device), targets.to(device)   
@@ -169,7 +169,8 @@ def evaluate_fullset(model, data_loader, device, config):
             else:
                 scores[pair[1]] += 1
 
-        
+        scores = sorted(scores.items(), key = lambda x: x[1], reverse=True)
+        pred_class = scores[0][0]
         accuracy = (targets==pred_class).sum() / targets.size(0)
         video_accuracy = ((pred_class.cuda() == targets.cuda()) * is_video.cuda()).sum() / is_video.sum()
 
@@ -204,14 +205,14 @@ def main(args, config):
     if args.distributed:
         num_tasks = utils.get_world_size()
         global_rank = utils.get_rank()            
-        samplers = create_sampler(datasets, [True,False], num_tasks, global_rank)
+        samplers = create_sampler(datasets, [True,False, False], num_tasks, global_rank)
     else:
         samplers = [None, None, None]
     
-    batch_size=[config['batch_size_train'],config['batch_size_test'],config['batch_size_test']]
-    train_loader, val_loader = create_loader(datasets,samplers,batch_size=batch_size,
-                                                          num_workers=[4,4],is_trains=[True,False], 
-                                                          collate_fns=[None,None])
+    batch_size=[config['batch_size_train'],config['batch_size_test'],1]
+    train_loader, val_loader, fullset_val_loader = create_loader(datasets,samplers,batch_size=batch_size,
+                                                          num_workers=[4,4,4],is_trains=[True,False, False], 
+                                                          collate_fns=[None,None, None])
 
     #### Model #### 
     print("Creating model")
@@ -243,10 +244,11 @@ def main(args, config):
             else:
                 train_stats = train_hard_neg(model, train_loader, optimizer, epoch,  device, config) 
             
+        full_set_stats = evaluate_fullset(model, fullset_val_loader, device, config)
         val_stats = evaluate(model, val_loader, device, config)
         # test_stats = evaluate(model, test_loader, device, config)  
-        wandb.log({'Val Accuracy': val_stats['acc']})
-        wandb.log({'Video Val Accuracy': val_stats['video_acc']})
+        wandb.log({'Val Accuracy': float(val_stats['acc'])})
+        wandb.log({'Video Val Accuracy': float(val_stats['video_acc'])})
         if utils.is_main_process():  
             if args.evaluate:                
                 log_stats = {**{f'val_{k}': v for k, v in val_stats.items()}

@@ -148,8 +148,8 @@ class InferenceImageCoDeDataset(Dataset):
                 img0 = []
                 img1 = []
                 pairs = []
-                for i in range(img_files):
-                    for j in range(i+1, img_files):
+                for i in range(len(img_files)):
+                    for j in range(i+1, len(img_files)):
                         f1 = img_files[i]
                         f2 = img_files[j]
                         img0.append(f1)

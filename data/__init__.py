@@ -8,7 +8,7 @@ from data.nocaps_dataset import nocaps_eval
 from data.flickr30k_dataset import flickr30k_train, flickr30k_retrieval_eval
 from data.vqa_dataset import vqa_dataset
 from data.nlvr_dataset import nlvr_dataset
-from data.dataset_imagecode import ImageCoDeDataset, PairedImageCoDeDataset
+from data.dataset_imagecode import ImageCoDeDataset, PairedImageCoDeDataset, InferenceImageCoDeDataset
 from data.pretrain_dataset import pretrain_dataset
 from transform.randaugment import RandomAugment
 
@@ -75,8 +75,9 @@ def create_dataset(dataset, config, min_scale=0.5):
         else:
             train_dataset = ImageCoDeDataset(transform_train, '../imagecode/data', 'train', video_only=config['video_only'], max_words=config['max_words'])
         val_dataset = PairedImageCoDeDataset(transform_test, '../imagecode/data','valid', video_only=config['video_only'], max_words=config['max_words'])
+        inference_val_dataset = InferenceImageCoDeDataset(transform_test, '../imagecode/data','valid', video_only=config['video_only'], max_words=config['max_words'])
         # test_dataset = ImageCoDeDataset(transform_test, '../imagecode/data', 'test')     
-        return train_dataset, val_dataset
+        return train_dataset, val_dataset, inference_val_dataset
     
 def create_sampler(datasets, shuffles, num_tasks, global_rank):
     samplers = []
