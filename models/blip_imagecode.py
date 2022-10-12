@@ -10,6 +10,7 @@ from torch import nn
 import torch.nn.functional as F
 from transformers import BertTokenizer
 import numpy as np
+import os
 
 class BLIP_NLVR(nn.Module):
     def __init__(self,                 
@@ -45,7 +46,7 @@ class BLIP_NLVR(nn.Module):
         
         image_embeds = self.visual_encoder(image) 
         image_atts = torch.ones(image_embeds.size()[:-1],dtype=torch.long).to(image.device)        
-        image0_embeds, image1_embeds = torch.split(image_embeds,targets.size(0))     
+        image0_embeds, image1_embeds = torch.split(image_embeds,image_embeds.shape[0]//2)     
 
         text = self.tokenizer(text, padding='longest', return_tensors="pt").to(image.device) 
         text.input_ids[:,0] = self.tokenizer.enc_token_id        

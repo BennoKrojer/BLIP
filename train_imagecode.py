@@ -146,6 +146,10 @@ def evaluate_fullset(model, data_loader, device, config):
 
     header = 'Evaluation:'
     print_freq = 50
+    acc = 0
+    vid_acc = 0
+    total = 0
+    vid_total = 0
 
     for i,(img0, img1, pairs, text, targets, is_video, img_dir) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         #TODO: this will assume batchsize=1 for now
@@ -163,27 +167,22 @@ def evaluate_fullset(model, data_loader, device, config):
  
         _, pred_class = prediction.max(1)
         scores = defaultdict(int)
-        for pair, single_pred in (pairs, pred_class):
-            if single_pred == 0:
-                scores[pair[0]] += 1
+        for pair, single_pred in zip(pairs, pred_class):
+            if single_pred == 1:
+                scores[int(pair[0])] += 1
             else:
-                scores[pair[1]] += 1
+                scores[int(pair[1])] += 1
 
         scores = sorted(scores.items(), key = lambda x: x[1], reverse=True)
         pred_class = scores[0][0]
-        accuracy = (targets==pred_class).sum() / targets.size(0)
-        video_accuracy = ((pred_class.cuda() == targets.cuda()) * is_video.cuda()).sum() / is_video.sum()
-
-        metric_logger.meters['acc'].update(accuracy.item(), n=img0.size(0))
-        metric_logger.meters['video_acc'].update(video_accuracy.item(), n=img0.size(0))
-
-
-    # gather the stats from all processes
-    metric_logger.synchronize_between_processes()
-
-    print("Averaged stats:", metric_logger.global_avg())   
-    return {k: "{:.4f}".format(meter.global_avg) for k, meter in metric_logger.meters.items()}
-
+        acc += targets==pred_class
+        total += 1
+        if is_video:
+            vid_acc += pred_class == targets
+            vid_total += 1
+        print(acc/total)
+    
+    return acc/total, vid_acc/vid_total
 
         
 def main(args, config):
@@ -244,7 +243,7 @@ def main(args, config):
             else:
                 train_stats = train_hard_neg(model, train_loader, optimizer, epoch,  device, config) 
             
-        full_set_stats = evaluate_fullset(model, fullset_val_loader, device, config)
+        acc, vid_acc = evaluate_fullset(model, fullset_val_loader, device, config)
         val_stats = evaluate(model, val_loader, device, config)
         # test_stats = evaluate(model, test_loader, device, config)  
         wandb.log({'Val Accuracy': float(val_stats['acc'])})
@@ -265,27 +264,27 @@ def main(args, config):
                             }
 
                 if float(val_stats['acc'])>best:
-                    # save_obj = {
-                    #     'model': model_without_ddp.state_dict(),
-                    #     'optimizer': optimizer.state_dict(),
-                    #     'config': config,
-                    #     'epoch': epoch,
-                    # }
-                    # torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_best.pth')) 
+                    save_obj = {
+                        'model': model_without_ddp.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'config': config,
+                        'epoch': epoch,
+                    }
+                    torch.save(save_obj, os.path.join(args.output_dir, 'checkpoint_best.pth')) 
                     best = float(val_stats['acc'])
                     wandb.log({'Best Val Accuracy': best})
                     best_epoch = epoch
 
-                # with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
-                    # f.write(json.dumps(log_stats) + "\n")
+                with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
+                    f.write(json.dumps(log_stats) + "\n")
         if args.evaluate:             
             break            
          
         # dist.barrier()   
     
-    # if utils.is_main_process():   
-        # with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
-        #     f.write("best epoch: %d"%best_epoch)      
+    if utils.is_main_process():   
+        with open(os.path.join(args.output_dir, "log.txt"),"a") as f:
+            f.write("best epoch: %d"%best_epoch)      
             
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -295,6 +294,7 @@ def main(args, config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='./configs/imagecode.yaml')
+    parser.add_argument('--checkpoint', default='https://storage.googleapis.com/sfr-vision-language-research/BLIP/models/model_base.pth', type=str)
     parser.add_argument('--output_dir', default='output/imagecode')
     parser.add_argument('--evaluate', action='store_true')      
     parser.add_argument('--device', default='cuda')
@@ -330,12 +330,13 @@ if __name__ == '__main__':
     config['max_words'] = args.max_words
     config['aug_prob'] = args.aug_prob
     config['concat_layer1to6'] = args.concat_layer1to6
+    config['pretrained'] = args.checkpoint
 
     if not config['random_pair_sampling']:
         config['batch_size_train'] = config['batch_size_train'] // 8
      
-    # Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
         
-    # yaml.dump(config, open(os.path.join(args.output_dir, 'config.yaml'), 'w'))    
+    yaml.dump(config, open(os.path.join(args.output_dir, 'config.yaml'), 'w'))    
     
     main(args, config)
